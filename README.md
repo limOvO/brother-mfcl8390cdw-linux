@@ -186,21 +186,39 @@ Brother Studio 會自動探測可用的編號，不需要手動算。
 
 ### 掃描鍵（機器面板按鈕）沒反應
 
-需要兩步，而且第二步**不能用 sudo**：
+先確認前置都做了：
 
 ```bash
 sudo ./scripts/install.sh --scan-ip=你的印表機IP
-sudo ./scripts/setup-scan-key.sh
+sudo ./scripts/setup-scan-key.sh          # 會自己診斷並說明狀況
 ```
 
 檔案會存到 `~/brscan/`。
 
-> `setup-scan-key.sh` 需要 root，因為 `brscan-skey -a` 寫的是 `/etc/opt` 下
-> root 擁有的設定檔。以一般使用者執行時它**不會報錯但什麼都沒寫進去**
-> （rc=0、靜默失敗），所以一定要用 `sudo`。
->
-> 附帶提醒：`brscan-skey -l` 在某些網路環境會是空的（SNMP 被擋／跨網段），
-> 這只影響「機器面板按鈕」，不影響電腦端用 `scanimage` 或 Brother Studio 掃描。
+**這個功能不保證能用。** `brscan-skey` 靠 SNMP 廣播找機器，跨網段、防火牆
+或某些家用路由器後面常常找不到，`brscan-skey -l` 會回空字串——本機實測就是這樣。
+
+腳本本身是安全的：所有 `brscan-skey` 呼叫都加了 `timeout`，不會卡住。
+⚠️ 注意 `brscan-skey` 的 wrapper 會把執行檔丟到背景（`$*&`），所以
+**不要用 `$(brscan-skey -l)` 抓輸出**——那會永久卡住（這個坑踩過一次）。
+
+可以依序試：
+
+```bash
+# 1) 確認同網段、161/udp 沒被擋
+ping -c1 你的印表機IP
+sudo ss -lunp | grep :161
+
+# 2) 有些機型需要在 brscan-snmp.cfg 取消註解 CommunityName
+grep -n CommunityName /opt/brother/scanner/brscan-skey/brscan-snmp.cfg
+#    把 #CommunityName=internal 的 # 拿掉後重啟服務
+systemctl --user restart brscan-skey.service
+
+# 3) 看服務日誌
+journalctl --user -u brscan-skey -n 50
+```
+
+面板按鈕不能用**不影響**電腦端掃描（`scanimage` / Brother Studio 走別的路徑）。
 
 ### 權限：GUI 不能管理印表機 / 一般使用者不能掃描
 
@@ -256,6 +274,8 @@ sudo ./scripts/setup-scan-key.sh --remove  # 移除掃描鍵服務
 - 只測過 **MFC-L8390CDW** on **CachyOS / Arch**。其他 Brother 機型需要改 `scripts/install.sh`
   裡的型號字串（有機會成功，但不保證）。
 - Debian 系程式碼有照顧到（`/usr/lib/x86_64-linux-gnu` 路徑、`apt` 提示），但**沒有實機測過**。
+- **機器面板的「掃描鍵」在本機未成功**：`brscan-skey -l` 一律回空，
+  SNMP 探索不到機器。電腦端掃描（`scanimage` / Brother Studio）不受影響。
 - **沒有 OCR**（Brother Studio 不含「可搜尋 PDF」功能）。
 - 驅動本身是 Brother 的 PPD 架構，長期會受 CUPS 棄用 PPD 影響。
 
