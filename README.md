@@ -190,10 +190,17 @@ Brother Studio 會自動探測可用的編號，不需要手動算。
 
 ```bash
 sudo ./scripts/install.sh --scan-ip=你的印表機IP
-./scripts/setup-scan-key.sh
+sudo ./scripts/setup-scan-key.sh
 ```
 
 檔案會存到 `~/brscan/`。
+
+> `setup-scan-key.sh` 需要 root，因為 `brscan-skey -a` 寫的是 `/etc/opt` 下
+> root 擁有的設定檔。以一般使用者執行時它**不會報錯但什麼都沒寫進去**
+> （rc=0、靜默失敗），所以一定要用 `sudo`。
+>
+> 附帶提醒：`brscan-skey -l` 在某些網路環境會是空的（SNMP 被擋／跨網段），
+> 這只影響「機器面板按鈕」，不影響電腦端用 `scanimage` 或 Brother Studio 掃描。
 
 ### 權限：GUI 不能管理印表機 / 一般使用者不能掃描
 
@@ -212,10 +219,15 @@ CUPS 2.4 對 PPD 式驅動的棄用提示，目前不影響運作。未來 CUPS 
 ### 換了印表機 IP
 
 ```bash
-sudo brsaneconfig5 -r MFC-L8390CDW
+sudo brsaneconfig5 -r MFCL8390CDW        # 注意：這裡用的是「裝置金鑰名」，沒有連字號
 sudo ./scripts/install.sh --scan-ip=新IP
-./scripts/setup-scan-key.sh
+sudo ./scripts/setup-scan-key.sh
 ```
+
+> **`MFC-L8390CDW`（顯示名稱）與 `MFCL8390CDW`（裝置金鑰名）不一樣**，
+> 這是 Brother 工具很容易踩的坑：`brsaneconfig5 -a` 的 `name=` 與
+> `brscan-skey -a` 要的是金鑰名，用錯會得到 `ERROR:Invalid device name.`。
+> `setup-scan-key.sh` 會自己從 `brsanenetdevice.cfg` 讀出正確的金鑰名。
 
 ---
 
@@ -223,7 +235,7 @@ sudo ./scripts/install.sh --scan-ip=新IP
 
 ```bash
 sudo ./scripts/uninstall.sh              # 移除驅動、佇列，還原原本的通用佇列
-./scripts/setup-scan-key.sh --remove     # 移除掃描鍵服務
+sudo ./scripts/setup-scan-key.sh --remove  # 移除掃描鍵服務
 ./scripts/install-desktop.sh --remove    # 移除桌面捷徑
 ```
 

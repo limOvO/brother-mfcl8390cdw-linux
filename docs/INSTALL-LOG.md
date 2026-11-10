@@ -282,7 +282,7 @@ brother-mfcl8390cdw-linux/          # GitHub 上的專案
 │   ├── fetch-drivers.sh            # 從 Brother 官網下載 + SHA256 校驗 + 解開
 │   ├── install.sh                  # 主安裝（需 root；含自我驗證）
 │   ├── uninstall.sh                # 解除安裝（需 root）
-│   ├── setup-scan-key.sh           # 掃描鍵服務（一般使用者）
+│   ├── setup-scan-key.sh           # 掃描鍵服務（需 root）
 │   └── install-desktop.sh          # 安裝 GUI 桌面捷徑
 ├── gui/                            # 圖形介面 Brother Studio
 │   ├── run.sh                      # 啟動器

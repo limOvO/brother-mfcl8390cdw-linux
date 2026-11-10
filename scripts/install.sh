@@ -369,8 +369,8 @@ if [ -n "$SCAN_IP" ]; then
   if brsaneconfig5 -a name="$QUEUE" model=MFC-L8390CDW ip="$SCAN_IP" >/dev/null 2>&1; then
     if brsaneconfig5 -q 2>/dev/null | grep -q "$SCAN_IP"; then
       ok "網路掃描器已註冊：MFC-L8390CDW @ $SCAN_IP"
-      echo "           使用者層還要執行一次（不用 root）："
-      echo "             $ROOT/scripts/setup-scan-key.sh"
+      echo "           還要再跑一次（需要 root，建立掃描鍵服務）："
+      echo "             sudo $ROOT/scripts/setup-scan-key.sh"
     else
       warn "brsaneconfig5 沒有回報錯誤，但查詢不到 $SCAN_IP（IP 正確嗎？機器開著嗎？）"
     fi
@@ -467,7 +467,7 @@ if [ "$FAIL" -eq 0 ]; then
   echo "  · 圖形介面：$ROOT/gui/run.sh（或安裝捷徑：$ROOT/scripts/install-desktop.sh）"
   echo "  · 測試列印：lp -d $QUEUE 你的檔案.pdf"
   echo "  · 掃描：     scanimage -L"
-  echo "  · 掃描鍵：   $ROOT/scripts/setup-scan-key.sh（一般使用者，不需 root）"
+  echo "  · 掃描鍵：   sudo $ROOT/scripts/setup-scan-key.sh（需要 root）"
   echo "  · 移除：     sudo $ROOT/scripts/uninstall.sh"
   [ -n "$TARGET_USER" ] && echo "  · 注意：$TARGET_USER 已加入 lpadmin/scanner 群組，需重新登入才生效"
 else

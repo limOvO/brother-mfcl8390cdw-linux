@@ -29,8 +29,8 @@ gui:    ## 啟動圖形介面
 desktop:  ## 安裝桌面捷徑（不需 root）
 	$(ROOT)/scripts/install-desktop.sh
 
-scan-key:  ## 設定掃描鍵服務（不需 root）
-	$(ROOT)/scripts/setup-scan-key.sh
+scan-key:  ## 設定掃描鍵服務（需要 root）
+	sudo $(ROOT)/scripts/setup-scan-key.sh
 
 check:  ## 檢查已下載的驅動檔是否完整、工具是否齊備
 	$(ROOT)/scripts/fetch-drivers.sh --check
