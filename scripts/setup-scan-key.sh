@@ -12,6 +12,9 @@
 # 用法：
 #   sudo scripts/setup-scan-key.sh              # 檢查 + 建立服務（安全、不阻塞）
 #   sudo scripts/setup-scan-key.sh --try-add    # 額外嘗試 brscan-skey -a（不保證有效）
+#   sudo scripts/setup-scan-key.sh --snmp-community=public
+#                                               # 指定 SNMP community（常見解法，
+#                                               # 見下方「為什麼 -l 會是空的」）
 #   sudo scripts/setup-scan-key.sh --remove     # 移除服務
 # ---------------------------------------------------------------------------
 set -uo pipefail
@@ -19,15 +22,18 @@ set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SKEY=/opt/brother/scanner/brscan-skey/brscan-skey
 SKEY_EXE=/opt/brother/scanner/brscan-skey/brscan-skey-exe
+SNMPCFG=/etc/opt/brother/scanner/brscan-skey/brscan-snmp.cfg
 NETCFG=/etc/opt/brother/scanner/brscan5/brsanenetdevice/brsanenetdevice.cfg
 TARGET_USER="${SUDO_USER:-}"
 TRY_ADD=0
 REMOVE=0
+SNMP_COMMUNITY=""
 export LC_ALL=C
 
 for arg in "$@"; do
   case "$arg" in
     --try-add) TRY_ADD=1 ;;
+    --snmp-community=*) SNMP_COMMUNITY="${arg#*=}" ;;
     --user=*)  TARGET_USER="${arg#*=}" ;;
     --remove)  REMOVE=1 ;;
     -h|--help) sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
@@ -121,6 +127,33 @@ EOF
 fi
 
 # ---------------------------------------------------------------------------
+if [ -n "$SNMP_COMMUNITY" ]; then
+  echo
+  echo "=== 2b. 設定 SNMP community = $SNMP_COMMUNITY ==="
+  # brscan-skey 用 SNMP 廣播探索機器，community 名稱預設是 internal；
+  # 但多數 Brother 機器的出廠 community 是 public，兩邊對不上就永遠探索不到，
+  # 症狀就是 brscan-skey -l 一律回空字串。
+  if [ -f "$SNMPCFG" ]; then
+    REALCFG=$(readlink -f "$SNMPCFG")
+    cp -f "$REALCFG" "$REALCFG.bak.$(date +%Y%m%d%H%M%S)" 2>/dev/null
+    {
+      echo "CommunityName=$SNMP_COMMUNITY"
+      echo "alternate_community_name=$SNMP_COMMUNITY"
+    } > "$REALCFG"
+    chmod 644 "$REALCFG"
+    echo "    已寫入 $REALCFG（原檔已備份為 .bak.*）"
+    if [ -n "$TARGET_USER" ]; then
+      runuser -u "$TARGET_USER" -- env XDG_RUNTIME_DIR="/run/user/$(id -u "$TARGET_USER")" \
+        systemctl --user restart brscan-skey.service 2>/dev/null \
+        && echo "    服務已重啟（讀取新設定）"
+      sleep 3
+    fi
+  else
+    echo "    找不到 $SNMPCFG（brscan-skey 裝好了嗎？）"
+  fi
+fi
+
+# ---------------------------------------------------------------------------
 echo
 echo "=== 3. 檢查掃描鍵是否看得到機器 ==="
 # 注意：這裡刻意用 timeout + 檔案重導，不用 $(...)。
@@ -168,10 +201,15 @@ cat <<'EOF'
       · Brother Studio 圖形介面掃描
       · 列印與 PC-FAX
 
-    想再試的話：
-      · 確認印表機與電腦同網段，且 161/udp 沒有被擋
-      · 編輯 /etc/opt/brother/scanner/brscan-skey/brscan-snmp.cfg
-        （CommunityName 預設被註解掉，有些機型需要取消註解）
+    想再試的話（建議照這個順序）：
+      · 先確認機器的 SNMP community 是哪個：
+          snmpget -v1 -c public    你的印表機IP 1.3.6.1.2.1.43.10.2.1.4.1.1
+          snmpget -v1 -c internal  你的印表機IP 1.3.6.1.2.1.43.10.2.1.4.1.1
+        （有數字回應的那個就是。多數 Brother 出廠是 public，
+          但 brscan-skey 預設用 internal，兩邊對不上就永遠探索不到）
+      · 用探測到的名稱重跑本腳本：
+          sudo scripts/setup-scan-key.sh --snmp-community=<名稱>
+      · 確認 161/udp 沒被防火牆擋：sudo ss -lunp | grep :161
       · 服務日誌：journalctl --user -u brscan-skey -n 50
     ──────────────────────────────────────────────────────────
 EOF

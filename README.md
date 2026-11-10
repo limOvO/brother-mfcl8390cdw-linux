@@ -195,26 +195,38 @@ sudo ./scripts/setup-scan-key.sh          # 會自己診斷並說明狀況
 
 檔案會存到 `~/brscan/`。
 
-**這個功能不保證能用。** `brscan-skey` 靠 SNMP 廣播找機器，跨網段、防火牆
-或某些家用路由器後面常常找不到，`brscan-skey -l` 會回空字串——本機實測就是這樣。
+**最常見的原因是 SNMP community 對不上。** `brscan-skey` 用 SNMP 廣播探索機器，
+預設 community 是 `internal`；但多數 Brother 機器出廠是 `public`，兩邊對不上就
+永遠探索不到，症狀就是 `brscan-skey -l` 一律回空字串。
+
+先確認你的機器回哪一個：
+
+```bash
+snmpget -v1 -c public   你的印表機IP 1.3.6.1.2.1.43.10.2.1.4.1.1
+snmpget -v1 -c internal 你的印表機IP 1.3.6.1.2.1.43.10.2.1.4.1.1
+# 有數字回應（例：Counter32: 481）的那個就是
+```
+
+用探測到的名稱重跑：
+
+```bash
+sudo ./scripts/setup-scan-key.sh --snmp-community=public
+```
+
+> 腳本會備份原檔再寫入，並重啟服務。若還是不行，再往下看。
 
 腳本本身是安全的：所有 `brscan-skey` 呼叫都加了 `timeout`，不會卡住。
 ⚠️ 注意 `brscan-skey` 的 wrapper 會把執行檔丟到背景（`$*&`），所以
 **不要用 `$(brscan-skey -l)` 抓輸出**——那會永久卡住（這個坑踩過一次）。
 
-可以依序試：
+其他可以查的：
 
 ```bash
-# 1) 確認同網段、161/udp 沒被擋
+# 同網段、161/udp 沒被擋
 ping -c1 你的印表機IP
 sudo ss -lunp | grep :161
 
-# 2) 有些機型需要在 brscan-snmp.cfg 取消註解 CommunityName
-grep -n CommunityName /opt/brother/scanner/brscan-skey/brscan-snmp.cfg
-#    把 #CommunityName=internal 的 # 拿掉後重啟服務
-systemctl --user restart brscan-skey.service
-
-# 3) 看服務日誌
+# 服務日誌
 journalctl --user -u brscan-skey -n 50
 ```
 
@@ -274,8 +286,9 @@ sudo ./scripts/setup-scan-key.sh --remove  # 移除掃描鍵服務
 - 只測過 **MFC-L8390CDW** on **CachyOS / Arch**。其他 Brother 機型需要改 `scripts/install.sh`
   裡的型號字串（有機會成功，但不保證）。
 - Debian 系程式碼有照顧到（`/usr/lib/x86_64-linux-gnu` 路徑、`apt` 提示），但**沒有實機測過**。
-- **機器面板的「掃描鍵」在本機未成功**：`brscan-skey -l` 一律回空，
-  SNMP 探索不到機器。電腦端掃描（`scanimage` / Brother Studio）不受影響。
+- **機器面板的「掃描鍵」**需要 SNMP discover 到機器；community 對不上就會失敗
+  （`brscan-skey -l` 回空）。可用 `--snmp-community=` 修正，詳見疑難排解。
+  不影響電腦端掃描（`scanimage` / Brother Studio 走別的路徑）。
 - **沒有 OCR**（Brother Studio 不含「可搜尋 PDF」功能）。
 - 驅動本身是 Brother 的 PPD 架構，長期會受 CUPS 棄用 PPD 影響。
 
