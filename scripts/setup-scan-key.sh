@@ -156,21 +156,54 @@ fi
 # ---------------------------------------------------------------------------
 echo
 echo "=== 3. 檢查掃描鍵是否看得到機器 ==="
-# 注意：這裡刻意用 timeout + 檔案重導，不用 $(...)。
+# 這裡刻意用 timeout + 檔案重導，不用 $(...)。
 # brscan-skey 的 wrapper 會把 exe 丟到背景，用指令替換抓輸出會永久卡住。
+#
+# 還有一個坑：daemon 在跑的時候，另一個 -l 行程拿不到 lock，
+# 會「靜默退出、零輸出」——看起來像沒偵測到機器，其實是有。
+# 所以先問一次（快），空的話就暫時停掉 daemon 再問一次。
+skey_list() {   # $1 = 輸出檔
+  timeout -k 2 10 "$SKEY_EXE" -l > "$1" 2>&1 < /dev/null || true
+  sleep 2
+}
+
+UID_T=${UID_T:-$(id -u "$TARGET_USER" 2>/dev/null || echo "")}
+svc() {  # $1 = start|stop
+  [ -n "$TARGET_USER" ] && [ -n "$UID_T" ] || return 0
+  runuser -u "$TARGET_USER" -- env XDG_RUNTIME_DIR="/run/user/$UID_T" \
+    systemctl --user "$1" brscan-skey.service 2>/dev/null
+}
+
 LISTFILE=$(mktemp /tmp/skey-list-XXXXXX)
-timeout -k 2 8 "$SKEY_EXE" -l > "$LISTFILE" 2>&1 < /dev/null || true
-sleep 1
-if [ -s "$LISTFILE" ] && grep -qiE 'MFC|DCP|HL-|scanner' "$LISTFILE"; then
+skey_list "$LISTFILE"
+FOUND=0
+if [ -s "$LISTFILE" ] && grep -qE 'brother|MFC|DCP|HL-' "$LISTFILE"; then
+  FOUND=1
+else
+  # 停 daemon（放開 lock）再問一次，問完立刻恢復
+  svc stop; sleep 2
+  skey_list "$LISTFILE"
+  svc start; sleep 2
+  [ -s "$LISTFILE" ] && grep -qE 'brother|MFC|DCP|HL-' "$LISTFILE" && FOUND=1
+fi
+
+if [ "$FOUND" -eq 1 ]; then
   echo "    掃描鍵已認得機器："
   sed 's/^/      /' "$LISTFILE"
-  echo
-  echo "    → 從機器面板按「掃描」，選 Scan to File，檔案存到 ~/brscan/"
+  if grep -qi 'Active' "$LISTFILE"; then
+    echo
+    echo "    → 已啟用。從機器面板按「掃描」，選 Scan to File，檔案存到 ~/brscan/"
+  else
+    echo
+    echo "    → 機器有被看到但沒有 Active。試試："
+    echo "        sudo $0 --snmp-community=public"
+    echo "      或確認 161/udp 沒被擋。"
+  fi
   rm -f "$LISTFILE"
   echo; echo "完成。"; exit 0
 fi
 rm -f "$LISTFILE"
-echo "    brscan-skey -l 回空（這在這台機器上是已知現象，不是你設定錯）"
+echo "    查不到機器（daemon 執行中與停止後都試過了）"
 
 if [ "$TRY_ADD" -eq 1 ] && [ -n "$DEV_ID" ]; then
   echo

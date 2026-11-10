@@ -238,22 +238,52 @@ sudo scripts/install.sh --scan-ip=192.168.1.50
 
 ---
 
-## 8b. 掃描鍵（機器面板按鈕）
+## 8b. 掃描鍵（機器面板按鈕）：已解決
 
-`brscan-skey -a` 寫的是 `/etc/opt/brother/scanner/brscan-skey/*.config`，
-那些是連到 `/opt`（root 擁有）的 symlink，所以**必須用 sudo**。
-以一般使用者執行時它不會報錯（rc=0）但什麼都沒寫進去，很容易誤判成功。
+原本一直失敗（`brscan-skey -l` 回空），排查後是三個問題疊在一起：
 
-```bash
-sudo scripts/setup-scan-key.sh
+### (1) SNMP community 對不上（真正主因）
+
+`brscan-skey` 用 SNMP 廣播探索機器，預設 community 是 `internal`
+（`brscan-snmp.cfg` 裡那行 `#CommunityName=internal` 是註解掉的，等於用預設值），
+但這台 MFC-L8390CDW 只認 `public`：
+
+```
+$ snmpget -v1 -c public   192.168.1.50 1.3.6.1.2.1.43.10.2.1.4.1.1   →  481
+$ snmpget -v1 -c internal 192.168.1.50 1.3.6.1.2.1.43.10.2.1.4.1.1   →  Timeout
 ```
 
-另外這裡有個容易踩的坑：`-a` 要的是**裝置金鑰名** `MFCL8390CDW`（沒有連字號），
-不是顯示名稱 `MFC-L8390CDW`；用錯會得到 `ERROR:Invalid device name.`。
-腳本會自己從 `brsanenetdevice.cfg` 的 `DEVICE=` 讀出正確名稱。
+解法（`scripts/setup-scan-key.sh --snmp-community=public` 會自動備份原檔並重啟服務）：
 
-若 `brscan-skey -l` 仍是空的（SNMP 被防火牆擋、跨網段等），只影響面板按鈕，
-電腦端用 `scanimage` 或 Brother Studio 掃描不受影響。
+```
+CommunityName=public
+alternate_community_name=public
+```
+
+### (2) `-l` 在 daemon 執行時會靜默退出
+
+daemon 持有 `/tmp/brother_lockfile_saneskey_*`，另一個 `-l` 行程拿不到 lock
+就**零輸出結束**，看起來像「沒偵測到機器」。停掉 daemon 再問才看得到：
+
+```
+$ systemctl --user stop brscan-skey
+$ /opt/brother/scanner/brscan-skey/brscan-skey-exe -l
+
+ MFCL8390CDW       : brother5:net1;dev0  : 192.168.1.50        Active
+ MFC-L8390CDW      : brother5:bus2;dev3  : USB                  Not registered
+```
+
+### (3) `$(brscan-skey ...)` 會永久卡住
+
+`brscan-skey` 的 wrapper 除了 `-f` 之外都把執行檔丟到背景（`$*&`），
+在指令替換裡呼叫它時背景子行程握著 stdout 不放，shell 永遠等不到結束。
+所有呼叫都要用 `timeout` + 重導到檔案。
+
+### 結果
+
+`setup-scan-key.sh` 現在會自動處理 (2)：先問一次，沒結果就暫時停 daemon 再問，
+問完恢復服務。(1) 由 `--snmp-community=` 處理。機器已顯示為 `Active`，
+面板按 Scan → Scan to File 會存到 `~/brscan/`。
 
 ---
 

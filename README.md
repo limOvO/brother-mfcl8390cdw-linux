@@ -186,20 +186,9 @@ Brother Studio 會自動探測可用的編號，不需要手動算。
 
 ### 掃描鍵（機器面板按鈕）沒反應
 
-先確認前置都做了：
-
-```bash
-sudo ./scripts/install.sh --scan-ip=你的印表機IP
-sudo ./scripts/setup-scan-key.sh          # 會自己診斷並說明狀況
-```
-
-檔案會存到 `~/brscan/`。
-
-**最常見的原因是 SNMP community 對不上。** `brscan-skey` 用 SNMP 廣播探索機器，
-預設 community 是 `internal`；但多數 Brother 機器出廠是 `public`，兩邊對不上就
-永遠探索不到，症狀就是 `brscan-skey -l` 一律回空字串。
-
-先確認你的機器回哪一個：
+**先確認 SNMP community。** 這是實測確認的主因：`brscan-skey` 用 SNMP 廣播探索機器，
+預設 community 是 `internal`，但多數 Brother 機器出廠是 `public`，兩邊對不上就永遠
+探索不到。先看你的機器回哪一個：
 
 ```bash
 snmpget -v1 -c public   你的印表機IP 1.3.6.1.2.1.43.10.2.1.4.1.1
@@ -207,28 +196,38 @@ snmpget -v1 -c internal 你的印表機IP 1.3.6.1.2.1.43.10.2.1.4.1.1
 # 有數字回應（例：Counter32: 481）的那個就是
 ```
 
-用探測到的名稱重跑：
+用探測到的名稱設定（會備份原檔並重啟服務）：
 
 ```bash
 sudo ./scripts/setup-scan-key.sh --snmp-community=public
 ```
 
-> 腳本會備份原檔再寫入，並重啟服務。若還是不行，再往下看。
+成功的話腳本會列出機器，並標成 `Active`：
 
-腳本本身是安全的：所有 `brscan-skey` 呼叫都加了 `timeout`，不會卡住。
-⚠️ 注意 `brscan-skey` 的 wrapper 會把執行檔丟到背景（`$*&`），所以
-**不要用 `$(brscan-skey -l)` 抓輸出**——那會永久卡住（這個坑踩過一次）。
-
-其他可以查的：
-
-```bash
-# 同網段、161/udp 沒被擋
-ping -c1 你的印表機IP
-sudo ss -lunp | grep :161
-
-# 服務日誌
-journalctl --user -u brscan-skey -n 50
+```text
+=== 3. 檢查掃描鍵是否看得到機器 ===
+    掃描鍵已認得機器：
+      MFCL8390CDW : brother5:net1;dev0 : 192.168.1.50 Active
+      MFC-L8390CDW: brother5:bus2;dev3 : USB           Not registered
+    → 已啟用。從機器面板按「掃描」，選 Scan to File，檔案存到 ~/brscan/
 ```
+
+#### 兩個踩過的坑
+
+1. **`$(brscan-skey -l)` 會永久卡住。** wrapper 會把執行檔丟到背景（`$*&`），
+   指令替換永遠等不到管線關閉。所有呼叫都要用 `timeout` + 重導到檔案。
+2. **daemon 在跑的時候，`-l` 會靜默退出、零輸出。** 它拿不到 lock。
+   看起來像「沒偵測到機器」，其實是有。要診斷得暫時停掉 daemon：
+
+   ```bash
+   systemctl --user stop brscan-skey
+   /opt/brother/scanner/brscan-skey/brscan-skey-exe -l
+   systemctl --user start brscan-skey
+   ```
+
+   `scripts/setup-scan-key.sh` 已經自動處理這件事（先問一次，空的話停 daemon 再問）。
+
+其他可能：161/udp 被防火牆擋、不在同一個廣播網段。
 
 面板按鈕不能用**不影響**電腦端掃描（`scanimage` / Brother Studio 走別的路徑）。
 
@@ -286,9 +285,9 @@ sudo ./scripts/setup-scan-key.sh --remove  # 移除掃描鍵服務
 - 只測過 **MFC-L8390CDW** on **CachyOS / Arch**。其他 Brother 機型需要改 `scripts/install.sh`
   裡的型號字串（有機會成功，但不保證）。
 - Debian 系程式碼有照顧到（`/usr/lib/x86_64-linux-gnu` 路徑、`apt` 提示），但**沒有實機測過**。
-- **機器面板的「掃描鍵」**需要 SNMP discover 到機器；community 對不上就會失敗
-  （`brscan-skey -l` 回空）。可用 `--snmp-community=` 修正，詳見疑難排解。
-  不影響電腦端掃描（`scanimage` / Brother Studio 走別的路徑）。
+- **機器面板的「掃描鍵」**需要 SNMP discover；community 對不上就會失敗。
+  實測解法是 `--snmp-community=public`（本機已確認可讓機器顯示為 `Active`），
+  詳見疑難排解。
 - **沒有 OCR**（Brother Studio 不含「可搜尋 PDF」功能）。
 - 驅動本身是 Brother 的 PPD 架構，長期會受 CUPS 棄用 PPD 影響。
 
