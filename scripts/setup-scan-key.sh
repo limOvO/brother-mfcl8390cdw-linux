@@ -1,37 +1,36 @@
 #!/usr/bin/env bash
 # ---------------------------------------------------------------------------
-# 設定「掃描鍵」：讓機器面板上的掃描按鈕能把檔案送到這台電腦。
+# 設定「掃描鍵」（機器面板上的掃描按鈕）。
 #
-# 前置：
-#   1. sudo scripts/install.sh                （裝好 brscan-skey 與 SANE backend）
-#   2. sudo scripts/install.sh --scan-ip=IP   （用網路掃描才需要）
-#
-# 為什麼需要 root：
-#   brscan-skey -a 會把註冊寫進 /etc/opt/brother/scanner/brscan-skey/*.config，
-#   那些是連到 /opt/brother/scanner/brscan-skey/ 的 symlink（root 擁有）。
-#   以一般使用者身份執行時，它「不會報錯」但什麼都沒寫進去（rc=0、靜默失敗），
-#   所以本腳本改用 sudo 執行，並在使用者層級另外建立 systemd 服務。
+# 重要：這個功能在不少環境（尤其是 Arch + 某些網路設定）是**不穩定的**。
+#   · brscan-skey 的裝置清單來自 brsaneconfig5 寫的 brsanenetdevice.cfg
+#   · `brscan-skey -l` 常常回空字串（SNMP 探測不到機器時）
+#   · `brscan-skey -a` 的 wrapper 會把執行檔丟到背景（`$*&`），
+#     用 $(...) 抓它的輸出會**永久卡住**——本腳本已避免這個寫法
+# 面板按鈕不能用**不影響**電腦端掃描（scanimage / Brother Studio 走別的路徑）。
 #
 # 用法：
-#   sudo scripts/setup-scan-key.sh              # 註冊 + 建立使用者服務
-#   sudo scripts/setup-scan-key.sh --user=NAME  # 指定服務要裝給哪個使用者
-#   sudo scripts/setup-scan-key.sh --remove     # 移除
+#   sudo scripts/setup-scan-key.sh              # 檢查 + 建立服務（安全、不阻塞）
+#   sudo scripts/setup-scan-key.sh --try-add    # 額外嘗試 brscan-skey -a（不保證有效）
+#   sudo scripts/setup-scan-key.sh --remove     # 移除服務
 # ---------------------------------------------------------------------------
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SKEY=/opt/brother/scanner/brscan-skey/brscan-skey
-DEVICE_ARG=""
+SKEY_EXE=/opt/brother/scanner/brscan-skey/brscan-skey-exe
+NETCFG=/etc/opt/brother/scanner/brscan5/brsanenetdevice/brsanenetdevice.cfg
 TARGET_USER="${SUDO_USER:-}"
+TRY_ADD=0
 REMOVE=0
 export LC_ALL=C
 
 for arg in "$@"; do
   case "$arg" in
-    --device=*) DEVICE_ARG="${arg#*=}" ;;
-    --user=*)   TARGET_USER="${arg#*=}" ;;
-    --remove)   REMOVE=1 ;;
-    -h|--help)  sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    --try-add) TRY_ADD=1 ;;
+    --user=*)  TARGET_USER="${arg#*=}" ;;
+    --remove)  REMOVE=1 ;;
+    -h|--help) sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "未知選項：$arg" >&2; exit 2 ;;
   esac
 done
@@ -41,97 +40,57 @@ done
   echo "請執行：sudo $0 $*" >&2
   exit 1
 }
-[ -x "$SKEY" ] || {
-  echo "找不到 $SKEY" >&2
+[ -x "$SKEY_EXE" ] || {
+  echo "找不到 $SKEY_EXE" >&2
   echo "請先執行：sudo $ROOT/scripts/install.sh" >&2
   exit 1
 }
 
-# 找出要安裝使用者服務的帳號：--user > SUDO_USER > 只有一個一般使用者的話就用他
 if [ -z "$TARGET_USER" ]; then
   TARGET_USER=$(awk -F: '$3>=1000 && $3<65534 {print $1; exit}' /etc/passwd)
 fi
 
-echo "=== 0. 使用者的家目錄 ==="
-echo "    目標使用者：${TARGET_USER:-（無）}"
-
+# ---------------------------------------------------------------------------
 if [ "$REMOVE" -eq 1 ]; then
-  echo
   echo "=== 移除掃描鍵服務 ==="
   if [ -n "$TARGET_USER" ]; then
-    runuser -u "$TARGET_USER" -- systemctl --user disable --now brscan-skey.service 2>/dev/null
-    rm -f "$(getent passwd "$TARGET_USER" | cut -d: -f6)/.config/systemd/user/brscan-skey.service"
-    runuser -u "$TARGET_USER" -- systemctl --user daemon-reload 2>/dev/null
+    HOME_DIR=$(getent passwd "$TARGET_USER" | cut -d: -f6)
+    UID_T=$(id -u "$TARGET_USER")
+    runuser -u "$TARGET_USER" -- env XDG_RUNTIME_DIR="/run/user/$UID_T" \
+      systemctl --user disable --now brscan-skey.service 2>/dev/null
+    rm -f "$HOME_DIR/.config/systemd/user/brscan-skey.service"
+    runuser -u "$TARGET_USER" -- env XDG_RUNTIME_DIR="/run/user/$UID_T" \
+      systemctl --user daemon-reload 2>/dev/null
     echo "    已移除 $TARGET_USER 的 brscan-skey 服務"
   fi
   exit 0
 fi
 
-# ---------------------------------------------------------------------------
-echo
-echo "=== 1. brscan5 目前認得的掃描器 ==="
-QUERY=$(brsaneconfig5 -q 2>/dev/null || true)
-if [ -n "$QUERY" ]; then
-  echo "$QUERY" | sed 's/^/    /'
+echo "=== 1. brscan5 已註冊的掃描器（掃描鍵的清單來源）==="
+if [ -f "$NETCFG" ] && grep -q 'DEVICE=' "$NETCFG" 2>/dev/null; then
+  while IFS= read -r line; do
+    echo "    $line"
+  done < <(grep 'DEVICE=' "$NETCFG")
+  DEV_ID=$(awk -F'DEVICE=' '/^DEVICE=/{split($2, a, /[ ,]/); print a[1]; exit}' "$NETCFG")
+  echo "    裝置金鑰名：$DEV_ID"
+  echo "    （注意：顯示名稱 MFC-L8390CDW 與金鑰名 MFCL8390CDW 不同，工具用的是後者）"
 else
-  echo "    （沒有網路掃描器；只用 USB 的話不需要註冊）"
-fi
-
-# 裝置的「金鑰名」是 brsaneconfig5 -q 每行第一個欄位（例：MFCL8390CDW，通常沒有連字號）。
-# 這跟顯示名稱 MFC-L8390CDW 不一樣，弄錯就會得到「ERROR:Invalid device name.」。
-if [ -z "$DEVICE_ARG" ]; then
-  # 最可靠：直接讀 brsaneconfig5 寫出來的設定檔，DEVICE= 後面就是金鑰名
-  NETCFG=/etc/opt/brother/scanner/brscan5/brsanenetdevice/brsanenetdevice.cfg
-  if [ -f "$NETCFG" ]; then
-    DEVICE_ARG=$(awk -F'DEVICE=' '/^DEVICE=/{split($2, a, /[ ,]/); print a[1]; exit}' "$NETCFG")
-  fi
-fi
-if [ -z "$DEVICE_ARG" ]; then
-  # 其次：brsaneconfig5 -q 每行最後一個欄位就是金鑰名
-  #   "* MFC-L8390CDW [ 192.168.1.50] MFCL8390CDW"  →  MFCL8390CDW
-  DEVICE_ARG=$(echo "$QUERY" | awk '!/^#/ && NF {print $NF; exit}')
-fi
-echo "    裝置金鑰名：${DEVICE_ARG:-（無）}"
-
-# ---------------------------------------------------------------------------
-echo
-echo "=== 2. 註冊到掃描鍵工具 ==="
-if [ -z "$DEVICE_ARG" ]; then
-  echo "    沒有可註冊的裝置。若要用網路掃描，先執行："
+  DEV_ID=""
+  echo "    沒有網路掃描器。要用面板掃描鍵請先註冊："
   echo "      sudo $ROOT/scripts/install.sh --scan-ip=你的印表機IP"
-  REG_OK=0
-else
-  ERR=$("$SKEY" -a "$DEVICE_ARG" 2>&1)
-  if [ -n "$ERR" ]; then
-    echo "    註冊失敗：$ERR"
-    REG_OK=0
-  else
-    echo "    已送出註冊：$DEVICE_ARG"
-    REG_OK=1
-  fi
-fi
-
-# 驗證：確認設定檔真的被寫入（不是只有 rc=0）
-CONF=/etc/opt/brother/scanner/brscan-skey/brscan-skey.config
-if [ "$REG_OK" -eq 1 ] && [ -f "$CONF" ]; then
-  if grep -qi 'MFC\|DEVICE\|DCP\|HL-' "$CONF"; then
-    echo "    設定檔已寫入：$CONF"
-  else
-    echo "    （設定檔裡還看不到裝置，重啟服務後再確認）"
-  fi
 fi
 
 # ---------------------------------------------------------------------------
 echo
-echo "=== 3. 建立 systemd 使用者服務 ==="
+echo "=== 2. 建立/更新使用者服務 ==="
 if [ -z "$TARGET_USER" ]; then
-  echo "    找不到一般使用者，略過服務建立（可用 --user=NAME 指定）"
+  echo "    找不到一般使用者，略過（可用 --user=NAME 指定）"
 else
   HOME_DIR=$(getent passwd "$TARGET_USER" | cut -d: -f6)
+  UID_T=$(id -u "$TARGET_USER")
   SERVICE_DIR="$HOME_DIR/.config/systemd/user"
-  SERVICE="$SERVICE_DIR/brscan-skey.service"
   runuser -u "$TARGET_USER" -- mkdir -p "$SERVICE_DIR"
-  cat > "$SERVICE" <<EOF
+  cat > "$SERVICE_DIR/brscan-skey.service" <<EOF
 [Unit]
 Description=Brother scan-key-tool
 Documentation=man:brscan-skey(1)
@@ -147,8 +106,7 @@ RestartSec=3
 WantedBy=default.target
 EOF
   chown -R "$TARGET_USER": "$SERVICE_DIR" 2>/dev/null
-  chmod 644 "$SERVICE"
-  UID_T=$(id -u "$TARGET_USER")
+  chmod 644 "$SERVICE_DIR/brscan-skey.service"
   runuser -u "$TARGET_USER" -- env XDG_RUNTIME_DIR="/run/user/$UID_T" \
     systemctl --user daemon-reload 2>/dev/null
   if runuser -u "$TARGET_USER" -- env XDG_RUNTIME_DIR="/run/user/$UID_T" \
@@ -156,28 +114,66 @@ EOF
     sleep 2
     STATE=$(runuser -u "$TARGET_USER" -- env XDG_RUNTIME_DIR="/run/user/$UID_T" \
             systemctl --user is-active brscan-skey.service 2>/dev/null)
-    echo "    服務狀態：$STATE"
+    echo "    服務狀態：$STATE（$TARGET_USER）"
   else
-    echo "    無法啟用服務（$TARGET_USER 的 systemd --user 可用嗎？）"
+    echo "    無法啟用服務"
   fi
 fi
 
 # ---------------------------------------------------------------------------
 echo
-echo "=== 4. 確認工具認得機器 ==="
-if [ -n "$TARGET_USER" ]; then
-  LIST=$(runuser -u "$TARGET_USER" -- env XDG_RUNTIME_DIR="/run/user/$(id -u "$TARGET_USER")" \
-         "$SKEY" -l 2>&1 || true)
-  if [ -n "$LIST" ]; then
-    echo "$LIST" | sed 's/^/    /'
-    echo "    → 掃描鍵可用：從機器面板按 Scan，選 Scan to File，檔案存到 ~/brscan/"
+echo "=== 3. 檢查掃描鍵是否看得到機器 ==="
+# 注意：這裡刻意用 timeout + 檔案重導，不用 $(...)。
+# brscan-skey 的 wrapper 會把 exe 丟到背景，用指令替換抓輸出會永久卡住。
+LISTFILE=$(mktemp /tmp/skey-list-XXXXXX)
+timeout -k 2 8 "$SKEY_EXE" -l > "$LISTFILE" 2>&1 < /dev/null || true
+sleep 1
+if [ -s "$LISTFILE" ] && grep -qiE 'MFC|DCP|HL-|scanner' "$LISTFILE"; then
+  echo "    掃描鍵已認得機器："
+  sed 's/^/      /' "$LISTFILE"
+  echo
+  echo "    → 從機器面板按「掃描」，選 Scan to File，檔案存到 ~/brscan/"
+  rm -f "$LISTFILE"
+  echo; echo "完成。"; exit 0
+fi
+rm -f "$LISTFILE"
+echo "    brscan-skey -l 回空（這在這台機器上是已知現象，不是你設定錯）"
+
+if [ "$TRY_ADD" -eq 1 ] && [ -n "$DEV_ID" ]; then
+  echo
+  echo "=== 3b. 嘗試 brscan-skey -a（--try-add）==="
+  echo "    以背景方式送出，最多等 8 秒，不會卡住"
+  timeout -k 2 8 "$SKEY_EXE" -a "$DEV_ID" >/dev/null 2>&1 < /dev/null &
+  wait $! 2>/dev/null || true
+  echo "    已送出。再確認一次："
+  LISTFILE=$(mktemp /tmp/skey-list-XXXXXX)
+  timeout -k 2 8 "$SKEY_EXE" -l > "$LISTFILE" 2>&1 < /dev/null || true
+  sleep 1
+  if [ -s "$LISTFILE" ]; then
+    sed 's/^/      /' "$LISTFILE"
   else
-    echo "    brscan-skey -l 目前是空的。"
-    echo "    常見原因：機器不在同一個網段／SNMP 被防火牆擋住／沒開機。"
-    echo "    不影響電腦端的掃描（scanimage / Brother Studio 走別的路徑）。"
-    echo "    手動確認：brscan-skey -l   ·   服務日誌：journalctl --user -u brscan-skey -n 30"
+    echo "    仍然是空的。"
   fi
+  rm -f "$LISTFILE"
 fi
 
+cat <<'EOF'
+
+    ── 這代表什麼 ─────────────────────────────────────────────
+    機器面板的掃描鍵很可能不會有反應。原因通常是 brscan-skey
+    用 SNMP 廣播找機器，在跨網段／防火牆／部分家用路由器上找不到。
+
+    不影響的部分（這些都正常可用）：
+      · scanimage -L / scanimage -o out.png
+      · Brother Studio 圖形介面掃描
+      · 列印與 PC-FAX
+
+    想再試的話：
+      · 確認印表機與電腦同網段，且 161/udp 沒有被擋
+      · 編輯 /etc/opt/brother/scanner/brscan-skey/brscan-snmp.cfg
+        （CommunityName 預設被註解掉，有些機型需要取消註解）
+      · 服務日誌：journalctl --user -u brscan-skey -n 50
+    ──────────────────────────────────────────────────────────
+EOF
 echo
 echo "完成。"
