@@ -204,18 +204,56 @@ GUI：GNOME 設定 → 印表機，或任何程式的列印對話框都會看到
 
 ---
 
-## 8. 尚未完成 / 待辦
+## 8. 用「發佈版」腳本重跑一次的結果
 
-**機器面板「掃描鍵」的註冊**（`brscan-skey -a`）需要寫入 `/etc/opt/brother/scanner/brscan5/brsanenetdevice/brsanenetdevice.cfg`（root 擁有）。這次執行到該步驟時 sudo 認證沒有通過，因此未完成。
-
-想補完，在終端機執行這一個指令即可（會要求一次密碼）：
+第一次是開發過程中的兩段式腳本（`install-root.sh` + `install-fixups.sh`）。
+專案整理成 GitHub 版本後，用發佈的 `scripts/install.sh` 在同一台機器重跑一次：
 
 ```bash
-sudo $HOME/brother-mfcl8390cdw-linux/scripts/setup-scan-key.sh
+sudo scripts/install.sh --scan-ip=192.168.1.50
 ```
 
-它會做三件事：把 `192.168.1.50` 註冊進 brscan5、讓 `brscan-skey` 認得這台機器、重啟使用者服務並列出結果。
-不做的話只影響「站在機器前面按掃描鍵」，電腦端列印與掃描完全不受影響。
+結果 `STATUS=OK`，關鍵輸出：
+
+```
+=== 6. 建立佇列並設定預設 ===
+  [OK]   佇列 MFCL8390CDW 已建立（usb://Brother/MFC-L8390CDW%20series?serial=...）
+  [OK]   預設印表機 = MFCL8390CDW
+  [OK]   已停用會印出亂碼的通用佇列：Brother-MFC-L8390CDW-series
+
+=== 7. 網路掃描器註冊（選配） ===
+  [OK]   網路掃描器已註冊：MFC-L8390CDW @ 192.168.1.50
+
+=== 8. 驗證 ===
+  [OK]   列印過濾鏈正常（輸出 6075 bytes 的 Brother 點陣資料）
+  [OK]   偵測到掃描器：
+           device `brother5:net1;dev0' is a Brother MFCL8390CDW
+           device `escl:https://192.168.1.50:443' is a ... platen,adf scanner
+```
+
+只出現一個警告（`udev type1 rule 略過`），那是預期行為——官方腳本在 Arch 上必定失敗，
+已由自訂的 `/etc/udev/rules.d/70-brother-mfp-scanner.rules` 取代。
+
+也就是說：**單一腳本一次執行就能從零到可用**，包含列印過濾鏈的自我驗證與掃描器偵測。
+
+---
+
+## 8b. 掃描鍵（機器面板按鈕）
+
+`brscan-skey -a` 寫的是 `/etc/opt/brother/scanner/brscan-skey/*.config`，
+那些是連到 `/opt`（root 擁有）的 symlink，所以**必須用 sudo**。
+以一般使用者執行時它不會報錯（rc=0）但什麼都沒寫進去，很容易誤判成功。
+
+```bash
+sudo scripts/setup-scan-key.sh
+```
+
+另外這裡有個容易踩的坑：`-a` 要的是**裝置金鑰名** `MFCL8390CDW`（沒有連字號），
+不是顯示名稱 `MFC-L8390CDW`；用錯會得到 `ERROR:Invalid device name.`。
+腳本會自己從 `brsanenetdevice.cfg` 的 `DEVICE=` 讀出正確名稱。
+
+若 `brscan-skey -l` 仍是空的（SNMP 被防火牆擋、跨網段等），只影響面板按鈕，
+電腦端用 `scanimage` 或 Brother Studio 掃描不受影響。
 
 ---
 
