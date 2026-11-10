@@ -1,0 +1,26 @@
+# 下載與解開的 Brother 官方套件（由 scripts/fetch-drivers.sh 產生，不入版控）
+raw/
+extracted/
+debctl/
+
+# 安裝日誌
+build/*.log
+*.log
+
+# 抓下來的頁面／暫存
+list_*.html
+ids.txt
+
+# Python
+__pycache__/
+*.pyc
+
+# 編輯器／系統
+.DS_Store
+*.swp
+
+# 舊的兩段式安裝腳本與本機日誌（已被 scripts/ 取代）
+build/
+
+# 產生物（install-desktop.sh 會重新產生）
+gui/brother-studio.desktop

@@ -1,0 +1,30 @@
+MIT License
+
+Copyright (c) 2026 limOvO and contributors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+--------------------------------------------------------------------------------
+
+註：本授權只涵蓋本專案自行撰寫的程式（安裝腳本與 Brother Studio 圖形介面）。
+
+Brother 的驅動程式與相關檔案（印表機濾器、SANE backend、PPD、PC-FAX 等）
+版權屬 Brother Industries, Ltd.，依其各自的「Brother License Agreement」授權使用。
+本專案不重新散布這些檔案，而是在安裝時從 Brother 官方網站下載，
+並以 SHA256 校驗確認取得的是官方原版檔案。詳見 NOTICE。

@@ -1,0 +1,60 @@
+NOTICE
+======
+
+本專案（brother-mfcl8390cdw-linux）分成兩部分：
+
+1. 本專案自行撰寫的程式
+   ---------------------------------
+   - scripts/*.sh           驅動安裝 / 移除 / 下載校驗腳本
+   - gui/*.py               圖形介面 Brother Studio
+   - 其餘文件、截圖
+
+   授權：MIT（見 LICENSE）。
+
+2. Brother Industries, Ltd. 的驅動程式
+   ---------------------------------
+   包含（但不限於）：
+   - mfcl8390cdwpdrv   印表機驅動（LPD 濾器、CUPS wrapper、PPD）
+   - brscan5           SANE backend 與私有函式庫
+   - brscan-skey       掃描鍵工具
+   - brmfcfaxdrv       PC-FAX 驅動
+   - brother-udev-rule udev 規則
+
+   版權屬 Brother Industries, Ltd.，依其「Brother License Agreement」授權：
+
+     "Brother grants User a non-exclusive license: to reproduce and/or
+      distribute (via Internet or in any other manner) the Software."
+
+   其中 CUPS wrapper 部分另受 GNU GPL v2 規範（Brother 的授權聲明中已指明）。
+
+**本專案不在版本庫中重新散布上述二進位檔案。**
+scripts/fetch-drivers.sh 在安裝時從 Brother 官方網站下載原始套件
+（download.brother.com），並用固定的 SHA256 校驗確認內容未被替換：
+
+    mfcl8390cdwpdrv-3.5.1-2.i386.rpm
+      https://download.brother.com/welcome/dlf105782/
+      sha256 efa043cc46d332e1775c778a3cb1513e3b407c60eca97dd8f3fb93ebee470232
+
+    brscan5-1.8.1-0.x86_64.rpm
+      https://download.brother.com/welcome/dlf104036/
+      sha256 a085e529e2193f050f489639c70e19f52afdec7252b2ac5240eaaddec4febdf7
+
+    brscan-skey-0.3.6-0.x86_64.rpm
+      https://download.brother.com/welcome/dlf006650/
+      sha256 a606b1945f71f35db7723128fde4275a6ee0778fc617a0f34e0b738730fd42b3
+
+    brmfcfaxdrv-2.0.2-3.x86_64.rpm
+      https://download.brother.com/welcome/dlf105190/
+      sha256 5ceed5a06df3421b84ec679795f2b4dffe748fe0cf3b825e0293b4ed0fc5d2ea
+
+    brother-udev-rule-type1-1.0.2-0.noarch.rpm
+      https://download.brother.com/welcome/dlf103900/
+      sha256 6c4e17c6dbcf263d9d08fb460ccd5b9f1a23fce79b30d0a41d96a224839322b2
+
+安裝腳本只做兩件事：
+  (a) 重現 Brother 官方 rpm/deb 的 postinst 動作（建 symlink、
+      把 brother5 加進 /etc/sane.d/dll.conf、裝 udev rule、lpadmin 建佇列）。
+  (b) 修正官方套件在 Arch 系上的兩個問題（見 docs/HOW-IT-WORKS.md）。
+
+本專案與 Brother Industries, Ltd. 無任何隸屬或背書關係。
+"Brother" 與 "MFC" 為其各自權利人的商標。

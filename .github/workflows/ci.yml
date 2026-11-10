@@ -1,0 +1,73 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  lint:
+    name: 語法與靜態檢查
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Shell 語法
+        run: |
+          for f in scripts/*.sh; do
+            bash -n "$f" && echo "ok  $f"
+          done
+
+      - name: shellcheck
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq shellcheck
+          # 只當提示，不讓警告擋住 CI
+          shellcheck -S warning scripts/*.sh || true
+
+      - name: Python 編譯檢查
+        run: |
+          python3 -m py_compile gui/*.py
+          echo "ok  gui/*.py"
+
+      - name: Makefile 目標齊備
+        run: |
+          make -n help >/dev/null
+          make -n lint >/dev/null
+          echo "ok  Makefile"
+
+  verify:
+    name: 驅動檔可取得且 SHA256 相符
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安裝 bsdtar
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq libarchive-tools
+
+      - name: 下載並校驗 Brother 官方套件
+        run: ./scripts/fetch-drivers.sh
+
+      - name: 檢查解開的內容符合安裝腳本預期
+        run: |
+          set -e
+          test -d extracted/mfcl8390cdwpdrv-3.5.1-2.i386
+          test -x extracted/mfcl8390cdwpdrv-3.5.1-2.i386/opt/brother/Printers/mfcl8390cdw/lpd/filter_mfcl8390cdw
+          test -f extracted/mfcl8390cdwpdrv-3.5.1-2.i386/opt/brother/Printers/mfcl8390cdw/cupswrapper/brother_mfcl8390cdw_printer_en.ppd
+          BIN=extracted/mfcl8390cdwpdrv-3.5.1-2.i386/opt/brother/Printers/mfcl8390cdw/lpd/x86_64/brmfcl8390cdwfilter
+          test -x "$BIN"
+          file "$BIN" | grep -q 'ELF 64-bit'
+          test -f extracted/brscan5-1.8.1-0.x86_64/opt/brother/scanner/brscan5/libsane-brother5.so.1.0.7
+          test -f extracted/brscan5-1.8.1-0.x86_64/opt/brother/scanner/brscan5/libLxBsScanCoreApi.so.3.2.6
+          echo "解開的套件內容符合預期"
+
+      - name: 確認 libLxBsScanCoreApi 的 SONAME 仍是 .so.3
+        run: |
+          LIB=extracted/brscan5-1.8.1-0.x86_64/opt/brother/scanner/brscan5/libLxBsScanCoreApi.so.3.2.6
+          SONAME=$(readelf -d "$LIB" | awk -F'[][]' '/SONAME/{print $2}')
+          echo "SONAME = $SONAME"
+          # install.sh 的連結邏輯假設這是 .so.3；若 Brother 改版請同步更新
+          test "$SONAME" = "libLxBsScanCoreApi.so.3"
