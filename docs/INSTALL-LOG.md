@@ -274,29 +274,29 @@ sudo systemctl restart cups; sudo udevadm control --reload
 ## 10. 目錄結構
 
 ```
-brother-mfcl8390cdw/
-├── README.md                    # 本文件
-├── SHA256SUMS.txt               # rpm 校驗值
-├── ids.txt / urls.txt           # 頁面項目 → 真實下載連結
-├── raw/                         # 官方原始套件（rpm）
-│   └── deb/                     # 官方原始套件（deb，用來讀 postinst）
-├── extracted/                   # 拆開的套件內容
-├── debctl/                      # deb 的 control 腳本（postinst 等）
-├── gui/                         # 圖形介面 Brother Studio
-│   ├── run.sh                   # 啟動器
-│   ├── brother_studio.py        # 入口
-│   ├── bs_ui.py                 # GTK4 介面
-│   ├── bs_core.py               # 掃描／列印／影像編輯（無 GTK 依賴）
-│   ├── brother-studio.desktop   # 桌面捷徑
-│   ├── docs/                    # 介面截圖
-│   └── README.md                # GUI 說明
-└── build/
-    ├── install-root.sh          # 主安裝（照官方 postinst，需 root）
-    ├── install-fixups.sh        # 第一輪補救：soname、udev、lpadmin（需 root）
-    ├── finalize.sh              # 待辦：網路掃描器 + 掃描鍵註冊（需 root）
-    ├── uninstall-root.sh        # 解除安裝（需 root）
-    ├── run-sudo.sh              # 在終端機視窗裡以 sudo 執行上面任一腳本
-    ├── install.log              # 主安裝日誌
-    ├── fixups.log               # 補救日誌
-    └── finalize.log             # 收尾日誌（未產生＝未執行）
+brother-mfcl8390cdw-linux/          # GitHub 上的專案
+├── README.md                       # 專案首頁
+├── LICENSE / NOTICE                # MIT + Brother 授權說明
+├── Makefile                        # 常用動作（fetch / install / lint …）
+├── scripts/
+│   ├── fetch-drivers.sh            # 從 Brother 官網下載 + SHA256 校驗 + 解開
+│   ├── install.sh                  # 主安裝（需 root；含自我驗證）
+│   ├── uninstall.sh                # 解除安裝（需 root）
+│   ├── setup-scan-key.sh           # 掃描鍵服務（一般使用者）
+│   └── install-desktop.sh          # 安裝 GUI 桌面捷徑
+├── gui/                            # 圖形介面 Brother Studio
+│   ├── run.sh                      # 啟動器
+│   ├── brother_studio.py           # 入口
+│   ├── bs_ui.py                    # GTK4 介面（首頁 / 掃描 / 列印）
+│   ├── bs_core.py                  # 掃描／列印／影像編輯（無 GTK 依賴）
+│   ├── docs/                       # 介面截圖
+│   └── README.md                   # GUI 說明
+├── docs/
+│   ├── HOW-IT-WORKS.md             # 官方 postinst 對照與 bug 成因
+│   └── INSTALL-LOG.md              # 本文件
+└── raw/ + extracted/               # 下載與解開的官方套件（不進版控）
 ```
+
+> 開發過程中的第一版是拆成 `install-root.sh` + `install-fixups.sh` 兩段執行
+> （先照官方 postinst 裝、再補 soname/udev/lpadmin），確認可行後已合併成
+> 單一的 `scripts/install.sh`，一次執行就完成。

@@ -18,6 +18,8 @@
 
 ![Brother Studio](gui/docs/screenshot-home.png)
 
+[![CI](https://github.com/limOvO/brother-mfcl8390cdw-linux/actions/workflows/ci.yml/badge.svg)](https://github.com/limOvO/brother-mfcl8390cdw-linux/actions/workflows/ci.yml)
+
 ---
 
 ## 這個專案解決什麼問題
